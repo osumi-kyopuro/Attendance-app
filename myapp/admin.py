@@ -5,8 +5,8 @@ from .models import Images
  
 class CustomUserAdmin(UserAdmin):
     
-    fieldsets = UserAdmin.fieldsets + ((None, {'fields': ('authority','mail',)}),)
-    list_display = ['username', 'mail', 'authority']
+    fieldsets = UserAdmin.fieldsets #+ ((None, {'fields': ('authority','mail',)}),)
+    list_display = ['username','password']
  
  
 admin.site.register(CustomUser, CustomUserAdmin)

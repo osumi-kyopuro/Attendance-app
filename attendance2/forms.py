@@ -8,10 +8,10 @@ class AttendForm(forms.ModelForm):
     class Meta:
         model = Attendance
         fields = (#フィールド
-            'user', 'scheduled_attend_time', 'scheduled_leave_time',  'attend_time', 'leave_time',
+             'scheduled_attend_time', 'scheduled_leave_time',  'attend_time', 'leave_time',
         'remarks')
         labels = {#ラベル
-            'user': 'スタッフ   (必須)',
+            #'user': 'スタッフ   (必須)',
             'scheduled_attend_time': '出勤予定時刻  (必須)',
             'scheduled_leave_time': '退勤予定時刻   (必須)',
             'attend_time': '出勤時刻    (任意)' ,

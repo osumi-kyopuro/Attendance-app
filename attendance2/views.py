@@ -18,24 +18,26 @@ from myapp.models import Images
 # Create your views here.
 def list_check(request):#データ整合チェック
     from .models import Attendance
+    from django.db.models import Sum
     if request.user.is_authenticated:
         time_series_flag=True
         data_alignment_flag=True
         time_over_flag=True
+        Attendance.objects.filter(user__isnull=True).update(user=request.user)
         if Attendance.objects.filter(scheduled_attend_time__gt=F('scheduled_leave_time')).exists():
             time_series_flag=False
             Attendance.objects.filter(scheduled_attend_time__gt=F('scheduled_leave_time')).delete()
         check_record=Attendance.objects.all()
+        if  Attendance.objects.filter(attend_time__isnull=False,leave_time__isnull=False).exists():
+            wk=Attendance.objects.filter(attend_time__isnull=False,leave_time__isnull=False)
+            wk.update(work_time = F('leave_time') - F('attend_time'))
+            #wk.save()
+        if Attendance.objects.filter(scheduled_leave_time__gte = timedelta(days=1)+F('scheduled_attend_time')).exists():
+            Attendance.objects.filter(scheduled_leave_time__gte = timedelta(days=1)+F('scheduled_attend_time')).delete()
+            time_over_flag=False
         for i in range(Attendance.objects.count()):
             if Attendance.objects.count() <= i:
                 break
-            if check_record[i].attend_time!=None and check_record[i].leave_time!=None:
-                check_record[i].work_time = check_record[i].leave_time - check_record[i].attend_time
-            check_record[i].save()
-            if check_record[i].scheduled_leave_time - check_record[i].scheduled_attend_time >= timedelta(days=1):
-                time_over_flag=False
-                check_record[i].delete()
-                continue
             check = Attendance.objects.filter(Q(user=check_record[i].user), Q(scheduled_attend_time__range=(check_record[i].scheduled_attend_time-timedelta(minutes=30),check_record[i].scheduled_leave_time+timedelta(minutes=30)))|Q(scheduled_leave_time__range=(check_record[i].scheduled_attend_time-timedelta(minutes=30),check_record[i].scheduled_leave_time+timedelta(minutes=30)))|Q(scheduled_attend_time__lte=check_record[i].scheduled_attend_time,scheduled_leave_time__gte=check_record[i].scheduled_leave_time))
             if check.count() > 1:
                 data_alignment_flag=False
@@ -48,15 +50,24 @@ def list_check(request):#データ整合チェック
         return render(request, 'myapp/index.html',{'object':object})
 
     
-    data = Attendance.objects.all()
-    params = {  'message': 'データ一覧', 
-                'data': data,#データ整合完了データ
+    data = Attendance.objects.filter(user=request.user).order_by("scheduled_attend_time")
+    absence_count=Attendance.objects.filter(user=request.user,attend_time=None ,leave_time=None,scheduled_leave_time__lt= datetime.now()).count()
+    late_count = Attendance.objects.filter(user=request.user,attend_time__gt = F('scheduled_attend_time')).count()
+    early_count = Attendance.objects.filter(user=request.user,leave_time__lt=F('scheduled_leave_time')).count()
+    sum = data.aggregate(Sum('work_time'))
+    params = {  'message': 'データ一覧', #メッセージ
+                'data': data,#自分のシフトデータ
+                'sum':sum,#総労働時間
+                'user':request.user,#ログインユーザー名
+                'absence_count':absence_count,#欠席回数
+                'late_count':late_count,#遅刻回数
+                'early_count':early_count,#早退回数
                 'time_series_flag' :time_series_flag,
                 'time_over_flag' :time_over_flag,
                 'data_alignment_flag':data_alignment_flag,
                 'title':'(登録順)'
             }
-    return render(request, 'attendance2/list.html', params)
+    return render(request, 'attendance2/mylist.html', params)
 
 
 def shift_addition_menu(request):#シフト追加メニュー
@@ -72,12 +83,13 @@ def add_shift(request):#シフト1件追加
     if request.user.is_authenticated:
         params = {'message': '','title':'(登録順)', 'form': None}
         if request.method == 'POST':
+
             form = AttendForm(request.POST)
             if form.is_valid() :
                 form.save()
                 return redirect('list_check')#データ整合チェック
             else:
-                params['message'] = '再入力して下さい'
+                params['message'] = '再入力してください'
                 params['form'] = form
         else:
             params['form'] = AttendForm()
@@ -144,31 +156,29 @@ def sortlist(request):#データ時系列順
     from .models import Attendance
     from django.db.models import Sum
     if request.user.is_authenticated:
-        data = Attendance.objects.order_by("scheduled_attend_time")
         sort_flag=True
-        params = {  'message': 'データ一覧', 
-                    'data': data,
+        data = Attendance.objects.filter(user=request.user).order_by('scheduled_attend_time')
+        absence_count=Attendance.objects.filter(user=request.user,attend_time=None ,leave_time=None,scheduled_leave_time__lt= datetime.now()).count()
+        late_count = Attendance.objects.filter(user=request.user,attend_time__gt = F('scheduled_attend_time')).count()
+        early_count = Attendance.objects.filter(user=request.user,leave_time__lt=F('scheduled_leave_time')).count()
+        sum = data.aggregate(Sum('work_time'))
+        params = {  'message': 'データ一覧', #メッセージ
+                    'data': data,#自分のシフトデータ
+                    'sum':sum,#総労働時間
+                    'user':request.user,#ログインユーザー名
+                    'absence_count':absence_count,#欠席回数
+                    'late_count':late_count,#遅刻回数
+                    'early_count':early_count,#早退回数
                     'sort_flag':sort_flag,
                     'title':'(時系列順)'
                 }
-        return render(request, 'attendance2/list.html', params)
+        return render(request, 'attendance2/mylist.html', params)
     else:
         object=Images.objects.get(pk=1)
         return render(request, 'myapp/index.html',{'object':object})
  
  
-def list(request):#データ登録順
-    from .models import Attendance
-    if request.user.is_authenticated:
-        data = Attendance.objects.all()
-        params = {  'message': 'データ一覧', 
-                    'data': data,
-                    'title':'(登録順)'
-                }
-        return render(request, 'attendance2/list.html', params)
-    else:
-        object=Images.objects.get(pk=1)
-        return render(request, 'myapp/index.html',{'object':object})
+
 
 
 from django.shortcuts import (
@@ -181,9 +191,9 @@ from .models import Attendance
 from .forms import AttendForm
 def delete_menu(request):#データ削除メニュー
     from .models import Attendance
-    data = Attendance.objects.all()
+    data = Attendance.objects.filter(user=request.user)
     if request.user.is_authenticated:
-        if Attendance.objects.exists():
+        if Attendance.objects.filter(user=request.user).exists():
             data_flag=True
         else:
             data_flag=False
@@ -199,7 +209,7 @@ def delete(request):#データ削除関数
         delete_ids = request.POST.getlist('delete')
         if delete_ids:    
             Attendance.objects.filter(id__in=delete_ids).delete()
-        return redirect('list')
+        return redirect('mylist')
     else:
         object=Images.objects.get(pk=1)
         return render(request, 'myapp/index.html',{'object':object})
@@ -208,55 +218,7 @@ def delete(request):#データ削除関数
 
 
 
-def user_search(request):#user検索機能
-    from .models import Attendance
-    from .forms import AttendForm
-    params = {'message': '', 'form': None}
-    if request.user.is_authenticated:
-        if request.method == 'POST':
-            form = AttendForm(request.POST)
-            if form.is_valid():
-                form.save()
-                return redirect('personal_list')#データ整合チェック
-            else:
-                params['message'] = '再入力して下さい'
-                params['form'] = form
-        else:
-            params['form'] = AttendForm()
-        return render(request, 'attendance2/user_search.html', params)
-    else:
-        object=Images.objects.get(pk=1)
-        return render(request, 'myapp/index.html',{'object':object})
 
-@require_POST
-def personal_list(request):#個人シフトデータ
-    from .models import Attendance
-    from django.db.models import Sum
-    from myapp.models import CustomUser
-    if request.user.is_authenticated:
-        if request.method == 'POST':
-            form = AttendForm(request.POST)
-            user=get_object_or_404(CustomUser, pk=request.POST['user'])#user名抽出
-            user_data=Attendance.objects.filter(user=request.POST['user'])
-            data = user_data.order_by("scheduled_attend_time")
-            absence_count=user_data.filter(attend_time=None ,leave_time=None,scheduled_leave_time__lt= datetime.now()).count()
-            late_count = user_data.filter(attend_time__gt = F('scheduled_attend_time')).count()
-            early_count = user_data.filter(leave_time__lt=F('scheduled_leave_time')).count()
-            sum = data.aggregate(Sum('work_time'))
-            params = {  'message': 'データ一覧', #メッセージ
-                        'data': data,#自分のシフトデータ
-                        'sum':sum,#総労働時間
-                        'user':user,#ログインユーザー名
-                        'absence_count':absence_count,#欠席回数
-                        'late_count':late_count,#遅刻回数
-                        'early_count':early_count#早退回数
-                    }
-            return render(request, 'attendance2/mylist.html', params)
-        else :
-            return render(request, 'attendance2/mylist.html')
-    else:
-        object=Images.objects.get(pk=1)
-        return render(request, 'myapp/index.html',{'object':object})
 
 
 
@@ -266,7 +228,8 @@ def mylist(request):#自分のシフトデータ
     from .models import Attendance
     from django.db.models import Sum
     if request.user.is_authenticated:
-        data = Attendance.objects.filter(user=request.user).order_by("scheduled_attend_time")
+        sort_flag=False
+        data = Attendance.objects.filter(user=request.user)
         absence_count=Attendance.objects.filter(user=request.user,attend_time=None ,leave_time=None,scheduled_leave_time__lt= datetime.now()).count()
         late_count = Attendance.objects.filter(user=request.user,attend_time__gt = F('scheduled_attend_time')).count()
         early_count = Attendance.objects.filter(user=request.user,leave_time__lt=F('scheduled_leave_time')).count()
@@ -277,7 +240,9 @@ def mylist(request):#自分のシフトデータ
                     'user':request.user,#ログインユーザー名
                     'absence_count':absence_count,#欠席回数
                     'late_count':late_count,#遅刻回数
-                    'early_count':early_count#早退回数
+                    'early_count':early_count,#早退回数
+                    'sort_flag':sort_flag,
+                    'title':'(登録順)'
                 }
         return render(request, 'attendance2/mylist.html', params)
     else:
